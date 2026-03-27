@@ -69,8 +69,48 @@
             </select>
           </div>
 
+          <div class="form-group">
+            <label>จุดหมายปลายทาง (Destinations)</label>
+            <Multiselect
+              v-model="formData.destination_ids"
+              :options="destinationsList"
+              mode="tags"
+              :searchable="true"
+              valueProp="id"
+              label="name"
+              placeholder="พิมพ์เพื่อค้นหาจุดหมายปลายทาง..."
+              :disabled="loadingDestinations"
+            />
+          </div>
 
-        </div>
+          <div class="form-group">
+            <label>เทศกาล (Festival)</label>
+            <Multiselect
+              v-model="formData.festival_ids"
+              :options="festivalsList"
+              mode="tags"
+              :searchable="true"
+              valueProp="id"
+              label="name"
+              placeholder="พิมพ์เพื่อค้นหาเทศกาล..."
+              :disabled="loadingFestivals"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>เดือนที่เดินทาง (Month Categories)</label>
+            <Multiselect
+              v-model="formData.month_ids"
+              :options="monthsList"
+              mode="tags"
+              :searchable="true"
+              valueProp="id"
+              label="name"
+              placeholder="พิมพ์เพื่อค้นหาเดือน..."
+              :disabled="loadingMonths"
+            />
+          </div>
+          </div>
       </div>
 
       <div class="form-group full-width">
@@ -126,80 +166,82 @@
       </div>
   
 
-  <div class="form-section">
-    <div class="section-header-flex">
-      <h3>4. รอบเดินทางและราคา (Pricing Rounds)</h3>
-      <button type="button" @click="addPricingRound" class="btn-add-round">
-        + เพิ่มรอบเดินทาง
-      </button>
-    </div>
-
-    <div v-for="(round, roundIndex) in formData.trip_pricing_data" :key="roundIndex" class="pricing-round-card">
-      <div class="round-header">
-        <h4>รอบที่ {{ roundIndex + 1 }}</h4>
-        <button type="button" @click="removePricingRound(roundIndex)" class="btn-remove">
-          ❌ ลบรอบนี้
-        </button>
-      </div>
-
-      <div class="form-grid">
-        <div class="form-group">
-          <label>วันที่ไป (Start Date)</label>
-          <input type="date" v-model="round.start_date" />
-        </div>
-
-        <div class="form-group">
-          <label>วันที่กลับ (End Date)</label>
-          <input type="date" v-model="round.end_date" />
-        </div>
-
-        <div class="form-group">
-          <label>วัน (คำนวณอัตโนมัติ)</label>
-          <input type="number" :value="calculateDaysAndNights(round.start_date, round.end_date).days" readonly />
-        </div>
-
-        <div class="form-group">
-          <label>คืน (คำนวณอัตโนมัติ)</label>
-          <input type="number" :value="calculateDaysAndNights(round.start_date, round.end_date).nights" readonly />
-        </div>
-      </div>
-
-      <div class="price-tiers-container">
-        <div v-for="(price, priceIndex) in round.prices" :key="priceIndex" class="price-row">
-          <input type="text" v-model="price.category" placeholder="หมวดหมู่ (เช่น ผู้ใหญ่ พักคู่)"
-            class="price-cat-input" />
-          <input type="number" v-model="price.amount" placeholder="ราคา (เช่น 89900)" class="price-amount-input" />
-          <button type="button" @click="removePriceCategory(roundIndex, priceIndex)" class="btn-remove-price">
-            ลบ
+      <div class="form-section">
+        <div class="section-header-flex">
+          <h3>4. รอบเดินทางและราคา (Pricing Rounds)</h3>
+          <button type="button" @click="addPricingRound" class="btn-add-round">
+            + เพิ่มรอบเดินทาง
           </button>
         </div>
 
-        <button type="button" @click="addPriceCategory(roundIndex)" class="btn-add-price">
-          + เพิ่มหมวดหมู่ราคา
+        <div v-for="(round, roundIndex) in formData.trip_pricing_data" :key="roundIndex" class="pricing-round-card">
+          <div class="round-header">
+            <h4>รอบที่ {{ roundIndex + 1 }}</h4>
+            <button type="button" @click="removePricingRound(roundIndex)" class="btn-remove">
+              ❌ ลบรอบนี้
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>วันที่ไป (Start Date)</label>
+              <input type="date" v-model="round.start_date" />
+            </div>
+
+            <div class="form-group">
+              <label>วันที่กลับ (End Date)</label>
+              <input type="date" v-model="round.end_date" />
+            </div>
+
+            <div class="form-group">
+              <label>วัน (คำนวณอัตโนมัติ)</label>
+              <input type="number" :value="calculateDaysAndNights(round.start_date, round.end_date).days" readonly />
+            </div>
+
+            <div class="form-group">
+              <label>คืน (คำนวณอัตโนมัติ)</label>
+              <input type="number" :value="calculateDaysAndNights(round.start_date, round.end_date).nights" readonly />
+            </div>
+          </div>
+
+          <div class="price-tiers-container">
+            <div v-for="(price, priceIndex) in round.prices" :key="priceIndex" class="price-row">
+              <input type="text" v-model="price.category" placeholder="หมวดหมู่ (เช่น ผู้ใหญ่ พักคู่)"
+                class="price-cat-input" />
+              <input type="number" v-model="price.amount" placeholder="ราคา (เช่น 89900)" class="price-amount-input" />
+              <button type="button" @click="removePriceCategory(roundIndex, priceIndex)" class="btn-remove-price">
+                ลบ
+              </button>
+            </div>
+
+            <button type="button" @click="addPriceCategory(roundIndex)" class="btn-add-price">
+              + เพิ่มหมวดหมู่ราคา
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="submit-action">
+        <button type="submit" :disabled="isSubmitting" class="btn-submit">
+          {{ isSubmitting ? 'กำลังส่งข้อมูลเข้าสู่ระบบ...' : '💾 บันทึกโปรแกรมทัวร์' }}
         </button>
       </div>
+    </form>
+
+    <div v-if="successMessage" class="alert success-msg">✅ {{ successMessage }}</div>
+    <div v-if="errorMessage" class="alert error-msg">❌ {{ errorMessage }}</div>
+    <div v-if="uploadProgressText" class="alert">
+      ⏳ {{ uploadProgressText }}
     </div>
   </div>
-
-  <div class="submit-action">
-    <button type="submit" :disabled="isSubmitting" class="btn-submit">
-      {{ isSubmitting ? 'กำลังส่งข้อมูลเข้าสู่ระบบ...' : '💾 บันทึกโปรแกรมทัวร์' }}
-    </button>
-  </div>
-  </form>
-
-  <div v-if="successMessage" class="alert success-msg">✅ {{ successMessage }}</div>
-  <div v-if="errorMessage" class="alert error-msg">❌ {{ errorMessage }}</div>
-  <div v-if="uploadProgressText" class="alert">
-    ⏳ {{ uploadProgressText }}
-  </div>
-  </div>
-
 </template>
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
+
+import Multiselect from '@vueform/multiselect'
+import '@vueform/multiselect/themes/default.css'
 
 // ---------------------------------------------------------------------
 // DEFAULT FORM
@@ -218,6 +260,11 @@ const createDefaultFormData = () => ({
   trip_outline: '',
   tour_highlight: '',
   tour_schedule_details: '',
+
+  // 🟢 ฟิลด์ใหม่
+  destination_ids: [],
+ festival_ids: [], // 🟢 เปลี่ยนชื่อตัวแปรให้ตรงกับ Backend
+  month_ids: [],    // 🟢 เปลี่ยนชื่อตัวแปรให้ตรงกับ Backend
 
   // จะถูกแทนค่าหลัง upload
   tour_pdf: 0,
@@ -254,6 +301,14 @@ const errorMessage = ref('')
 const airlinesList = ref([])
 const loadingAirlines = ref(false)
 const uploadProgressText = ref('')
+
+// 🟢 State ใหม่สำหรับ Options อื่นๆ
+const destinationsList = ref([])
+const loadingDestinations = ref(false)
+const festivalsList = ref([])
+const loadingFestivals = ref(false)
+const monthsList = ref([])
+const loadingMonths = ref(false)
 
 // ---------------------------------------------------------------------
 // API
@@ -338,7 +393,7 @@ const onGalleryImagesChange = (event) => {
 }
 
 // ---------------------------------------------------------------------
-// FETCH AIRLINES
+// FETCH DATA (Airlines, Destinations, Festivals, Months)
 // ---------------------------------------------------------------------
 const fetchAirlines = async () => {
   loadingAirlines.value = true
@@ -367,8 +422,51 @@ const fetchAirlines = async () => {
   }
 }
 
+// 🟢 ฟังก์ชันโหลดข้อมูลที่เพิ่มใหม่
+const fetchDestinations = async () => {
+  loadingDestinations.value = true
+  try {
+    // 🟢 เปลี่ยนคำด้านหลังเป็น travel_locations
+    const res = await publicApi.get('/taxonomy-terms/travel_locations')
+    if (res.data?.success) destinationsList.value = res.data.items
+  } catch (err) {
+    console.error('Error fetching destinations:', err)
+  } finally {
+    loadingDestinations.value = false
+  }
+}
+
+const fetchFestivals = async () => {
+  loadingFestivals.value = true
+  try {
+    // 🟢 เปลี่ยน Endpoint เป็น taxonomy-terms
+    const res = await publicApi.get('/taxonomy-terms/festival') 
+    if (res.data?.success) festivalsList.value = res.data.items
+  } catch (err) {
+    console.error('Error fetching festivals:', err)
+  } finally {
+    loadingFestivals.value = false
+  }
+}
+
+const fetchMonths = async () => {
+  loadingMonths.value = true
+  try {
+    // 🟢 เปลี่ยน Endpoint เป็น taxonomy-terms
+    const res = await publicApi.get('/taxonomy-terms/month') 
+    if (res.data?.success) monthsList.value = res.data.items
+  } catch (err) {
+    console.error('Error fetching months:', err)
+  } finally {
+    loadingMonths.value = false
+  }
+}
+
 onMounted(() => {
   fetchAirlines()
+  fetchDestinations() // 🟢
+  fetchFestivals() // 🟢
+  fetchMonths() // 🟢
 })
 
 // ---------------------------------------------------------------------
@@ -428,7 +526,6 @@ const validateFiles = () => {
   return ''
 }
 
-
 const uploadTourAssets = async () => {
   const form = new FormData()
 
@@ -452,40 +549,6 @@ const uploadTourAssets = async () => {
   })
 
   return response.data
-}
-
-// ---------------------------------------------------------------------
-// UPLOAD HELPERS
-// ---------------------------------------------------------------------
-const uploadSingleFile = async (file, type = 'file') => {
-  if (!file) return null
-
-  const form = new FormData()
-  form.append('file', file)
-  form.append('type', type)
-
-
-  const response = await secureApi.post('/upload-media', form, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
-  return response.data
-}
-
-const uploadMultipleFiles = async (files, type = 'gallery_image') => {
-  const uploaded = []
-
-  for (let i = 0; i < files.length; i++) {
-    uploadProgressText.value = `กำลังอัปโหลดรูป Gallery ${i + 1}/${files.length}...`
-    const result = await uploadSingleFile(files[i], type)
-
-    if (result?.attachment_id) {
-      uploaded.push(result)
-    }
-  }
-
-  return uploaded
 }
 
 // ---------------------------------------------------------------------
@@ -531,7 +594,14 @@ const buildPayload = () => {
     ? `${payload.trip_days} วัน ${payload.trip_nights} คืน`
     : ''
 
+  // 🟢 ยัดค่าที่เพิ่มใหม่เข้าไปใน Payload ก่อนส่ง
+// 🟢 ส่งค่าที่เป็น array ของ ID กลับไปให้ Backend
+  payload.destination_ids = formData.value.destination_ids || []
+  payload.festival_ids = formData.value.festival_ids || []
+  payload.month_ids = formData.value.month_ids || []
+
   return payload
+
 }
 
 // ---------------------------------------------------------------------
@@ -583,10 +653,10 @@ const submitTourData = async () => {
     })
 
     if (response.data?.success) {
-      successMessage.value = `บันทึกทัวร์สำเร็จ! (Post ID: ${response.data.tour_id})`
+      successMessage.value = `บันทึกทัวร์สำเร็จ! (Post ID: ${response.data.post_id})`
       resetForm()
       await fetchAirlines()
-    } else {
+    }else {
       errorMessage.value = response.data?.message || 'ไม่สามารถบันทึกข้อมูลได้'
     }
   } catch (error) {
@@ -607,6 +677,24 @@ const submitTourData = async () => {
 </script>
 
 <style scoped>
+
+/* 🟢 ปรับแต่งสีและกรอบของ Multiselect ให้เข้ากับธีมเว็บ */
+:deep(.multiselect) {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  min-height: 48px;
+}
+:deep(.multiselect.is-active) {
+  border-color: #0056b3;
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
+}
+:deep(.multiselect-tag) {
+  background: #0056b3;
+  font-family: 'Prompt', sans-serif;
+  border-radius: 4px;
+}
+
 .add-tour-container {
   max-width: 900px;
   margin: 40px auto;
@@ -841,6 +929,18 @@ textarea {
   background: #ffebee;
   color: #d32f2f;
   border: 1px solid #ffcdd2;
+}
+
+/* 🟢 CSS ที่เพิ่มเข้ามาใหม่สำหรับ Select แบบหลายช่อง */
+.multi-select {
+  height: 110px;
+  overflow-y: auto;
+}
+
+.hint-text {
+  color: #64748b;
+  font-size: 0.8rem;
+  margin-top: 4px;
 }
 
 @media (max-width: 768px) {
