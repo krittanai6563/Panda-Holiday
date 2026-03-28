@@ -328,48 +328,124 @@ add_action('rest_api_init', function () {
         'permission_callback' => '__return_true',
     ]);
 
+    // สร้างทัวร์ใหม่
     register_rest_route('blupaper/v1', '/add-tour', [
         'methods'             => WP_REST_Server::CREATABLE,
         'callback'            => 'blupaper_create_tour_handler',
-        'permission_callback' => function () {
-            return current_user_can('edit_posts');
-        },
+        'permission_callback' => '__return_true',
         'args' => [
-            'title' => [
-                'required' => true,
-                'type'     => 'string',
-            ],
-            'trip_code' => [
-                'required' => true,
-                'type'     => 'string',
-            ],
+            'title' => [ 'required' => true, 'type' => 'string' ],
+            'trip_code' => [ 'required' => true, 'type' => 'string' ],
         ],
     ]);
+
+    // ดึงทัวร์ทั้งหมด (GET)
+    register_rest_route('blupaper/v1', '/tours', array(
+        'methods' => 'GET',
+        'callback' => 'blupaper_get_all_tours',
+        'permission_callback' => '__return_true'
+    ));
+
+    // ดึงทัวร์ 1 รายการเพื่อไปแก้ไข (GET)
+    register_rest_route('blupaper/v1', '/tours/(?P<id>\d+)', array(
+        'methods' => 'GET',
+        'callback' => 'blupaper_get_single_tour', 
+        'permission_callback' => '__return_true'
+    ));
+
+    // อัปเดตทัวร์ (POST)
+    register_rest_route('blupaper/v1', '/update-tour/(?P<id>\d+)', array(
+        'methods' => 'POST',
+        'callback' => 'blupaper_update_tour_handler',
+        'permission_callback' => '__return_true'
+    ));
+
+    // ลบทัวร์ (DELETE)
+    register_rest_route('blupaper/v1', '/tours/(?P<id>\d+)', array(
+        'methods' => 'DELETE',
+        'callback' => 'blupaper_delete_tour',
+        'permission_callback' => '__return_true'
+    ));
+
+  // อัปเดตเฉพาะสถานะทัวร์ (Quick Edit)
+    register_rest_route('blupaper/v1', '/update-tour-status/(?P<id>\d+)', array(
+        'methods' => 'POST',
+        'callback' => 'blupaper_quick_update_status',
+        'permission_callback' => '__return_true'
+    ));
+
+    register_rest_route('blupaper/v1', '/add-airline', array(
+        'methods' => 'POST',
+        'callback' => 'blupaper_add_airline_handler',
+        'permission_callback' => '__return_true'
+    ));
+
+    // อัปเดตข้อมูล Taxonomy
+    register_rest_route('blupaper/v1', '/taxonomy-terms/(?P<taxonomy>[a-zA-Z0-9_-]+)/(?P<id>\d+)', array(
+        'methods' => 'POST',
+        'callback' => 'blupaper_update_taxonomy_term',
+        'permission_callback' => '__return_true'
+    ));
+
+    // ลบข้อมูล Taxonomy
+    register_rest_route('blupaper/v1', '/taxonomy-terms/(?P<taxonomy>[a-zA-Z0-9_-]+)/(?P<id>\d+)', array(
+        'methods' => 'DELETE',
+        'callback' => 'blupaper_delete_taxonomy_term',
+        'permission_callback' => '__return_true'
+    ));
+
+    // ดึงรายชื่อทัวร์ตาม Taxonomy ID
+    register_rest_route('blupaper/v1', '/taxonomy-tours/(?P<taxonomy>[a-zA-Z0-9_-]+)/(?P<id>\d+)', array(
+        'methods' => 'GET',
+        'callback' => 'blupaper_get_tours_by_taxonomy',
+        'permission_callback' => '__return_true'
+    ));
+
+    if (!taxonomy_exists('wt_pricing_category')) {
+        register_taxonomy('wt_pricing_category', $post_types, [
+            'labels' => [
+                'name'          => 'Pricing Categories',
+                'singular_name' => 'Pricing Category',
+            ],
+            'public'            => false, // ซ่อนจากหน้าเว็บทั่วไป (ใช้แค่คำนวณราคา)
+            'hierarchical'      => false,
+            'show_ui'           => false, // ซ่อนเมนูจากหลังบ้าน WP (เพราะเราจัดการผ่าน Vue แล้ว)
+            'show_in_rest'      => true,  // สำคัญมาก! ต้องเปิดให้ API มองเห็น
+        ]);
+    }
+
+  
 });
 
 // ---------------------------------------------------------------------
-// 2) AIRLINES FROM ACF OPTIONS
+// 2) AIRLINES FROM ACF OPTIONS (ดึงโลโก้มาด้วย)
 // ---------------------------------------------------------------------
 if (!function_exists('blupaper_get_airlines_handler')) {
     function blupaper_get_airlines_handler() {
         if (!function_exists('get_field')) {
-            return new WP_Error(
-                'acf_missing',
-                'โปรดติดตั้งหรือเปิดใช้งาน ACF Pro',
-                ['status' => 500]
-            );
+            return new WP_Error('acf_missing', 'โปรดติดตั้งหรือเปิดใช้งาน ACF Pro', ['status' => 500]);
         }
-
+        
         $airlines = get_field('airline_repeater', 'option');
-
-        if (!is_array($airlines)) {
-            $airlines = [];
-        }
+        if (!is_array($airlines)) $airlines = [];
 
         $result = array_map(function ($item) {
+            // 🟢 จัดการดึง URL ของโลโก้ (รองรับกรณีที่ ACF คืนค่าเป็น Array, URL หรือ ID)
+            $logo_url = '';
+            if (!empty($item['airline_logo'])) {
+                if (is_array($item['airline_logo']) && isset($item['airline_logo']['url'])) {
+                    $logo_url = $item['airline_logo']['url']; // กรณี Return Format เป็น Image Array
+                } elseif (is_string($item['airline_logo'])) {
+                    $logo_url = $item['airline_logo']; // กรณี Return Format เป็น Image URL
+                } elseif (is_numeric($item['airline_logo'])) {
+                    $logo_url = wp_get_attachment_url($item['airline_logo']); // กรณี Return Format เป็น Image ID
+                }
+            }
+
             return [
                 'airline_key'  => isset($item['airline_key']) ? sanitize_text_field($item['airline_key']) : '',
                 'airline_name' => isset($item['airline_name']) ? sanitize_text_field($item['airline_name']) : '',
+                'airline_logo' => $logo_url // 🟢 ส่ง URL โลโก้กลับไปให้ Vue
             ];
         }, $airlines);
 
@@ -378,125 +454,289 @@ if (!function_exists('blupaper_get_airlines_handler')) {
 }
 
 // ---------------------------------------------------------------------
+// ฟังก์ชันสำหรับเพิ่มสายการบินใหม่เข้า ACF Options
+// ---------------------------------------------------------------------
+if (!function_exists('blupaper_add_taxonomy_term')) {
+    function blupaper_add_taxonomy_term(WP_REST_Request $request) {
+        $taxonomy = blupaper_validate_taxonomy($request['taxonomy']);
+        if (is_wp_error($taxonomy)) return $taxonomy;
+
+        $name = sanitize_text_field($request->get_param('name'));
+        $slug = sanitize_title($request->get_param('slug'));
+        $description = sanitize_textarea_field($request->get_param('description'));
+
+        if ($name === '') return new WP_Error('missing_name', 'กรุณาระบุชื่อ term', ['status' => 400]);
+
+        $args = [];
+        if ($slug !== '') $args['slug'] = $slug;
+        if ($description !== null) $args['description'] = $description;
+
+        // 1. สั่งสร้างข้อมูลใหม่ลงฐานข้อมูล
+        $inserted = wp_insert_term($name, $taxonomy, $args);
+        if (is_wp_error($inserted)) return $inserted;
+
+        // ดึง ID ที่ระบบเพิ่งสร้างให้สดๆ ร้อนๆ ออกมาใช้
+        $term_id = $inserted['term_id']; 
+
+        // 🟢 2. โค้ด Rank Math วางตรงนี้ครับ! (ใช้ ID ใหม่มาผูกข้อมูล)
+        $rm_title   = sanitize_text_field($request->get_param('rank_math_title'));
+        $rm_desc    = sanitize_textarea_field($request->get_param('rank_math_description'));
+        $rm_keyword = sanitize_text_field($request->get_param('rank_math_focus_keyword'));
+
+        if ($rm_title !== null) update_term_meta($term_id, 'rank_math_title', $rm_title);
+        if ($rm_desc !== null) update_term_meta($term_id, 'rank_math_description', $rm_desc);
+        if ($rm_keyword !== null) update_term_meta($term_id, 'rank_math_focus_keyword', $rm_keyword);
+
+        // 3. ส่งข้อความกลับไปหา Vue
+        return rest_ensure_response(['success' => true, 'message' => 'เพิ่มข้อมูลสำเร็จ']);
+    }
+}
+
+// ---------------------------------------------------------------------
+// 3. ฟังก์ชัน แก้ไขข้อมูล (รองรับ ACF)
+// ---------------------------------------------------------------------
+if (!function_exists('blupaper_update_taxonomy_term')) {
+    function blupaper_update_taxonomy_term(WP_REST_Request $request) {
+        $taxonomy = blupaper_validate_taxonomy($request['taxonomy']);
+        if (is_wp_error($taxonomy)) return $taxonomy;
+
+        $term_id = (int) $request['id'];
+        $acf_term_id = $taxonomy . '_' . $term_id; // 🟢 อ้างอิง ID สำหรับ ACF
+
+        $name = sanitize_text_field($request->get_param('name'));
+        $slug = sanitize_title($request->get_param('slug'));
+        $description = sanitize_textarea_field($request->get_param('description'));
+
+        if ($name === '') return new WP_Error('missing_name', 'กรุณาระบุชื่อ term', ['status' => 400]);
+
+        $args = ['name' => $name];
+        if ($slug !== '') $args['slug'] = $slug;
+        $args['description'] = $description;
+
+        $updated = wp_update_term($term_id, $taxonomy, $args);
+        if (is_wp_error($updated)) return $updated;
+
+        // เซฟ Rank Math
+        $rm_title   = sanitize_text_field($request->get_param('rank_math_title'));
+        $rm_desc    = sanitize_textarea_field($request->get_param('rank_math_description'));
+        $rm_keyword = sanitize_text_field($request->get_param('rank_math_focus_keyword'));
+
+        update_term_meta($term_id, 'rank_math_title', $rm_title);
+        update_term_meta($term_id, 'rank_math_description', $rm_desc);
+        update_term_meta($term_id, 'rank_math_focus_keyword', $rm_keyword);
+        
+        // 🟢 เซฟ ACF Fields (ชื่อ EN และ รูปภาพ)
+        if (function_exists('update_field')) {
+            $en_name = sanitize_text_field($request->get_param('category_en_name'));
+            $image_id = absint($request->get_param('category_thumbnail'));
+
+            update_field('category_en_name', $en_name, $acf_term_id);
+            if ($image_id > 0) {
+                update_field('category_thumbnail', $image_id, $acf_term_id);
+            } else {
+                update_field('category_thumbnail', '', $acf_term_id); // ลบรูป
+            }
+        }
+
+        return rest_ensure_response(['success' => true, 'message' => 'อัปเดตข้อมูลสำเร็จ']);
+    }
+}
+// ---------------------------------------------------------------------
+// ฟังก์ชัน ลบข้อมูล Taxonomy
+// ---------------------------------------------------------------------
+if (!function_exists('blupaper_delete_taxonomy_term')) {
+    function blupaper_delete_taxonomy_term(WP_REST_Request $request) {
+        $taxonomy = blupaper_validate_taxonomy($request['taxonomy']);
+        if (is_wp_error($taxonomy)) return $taxonomy;
+
+        $term_id = (int) $request['id'];
+        $deleted = wp_delete_term($term_id, $taxonomy);
+
+        if (is_wp_error($deleted) || !$deleted) {
+            return new WP_Error('delete_failed', 'ไม่สามารถลบข้อมูลได้ หรือข้อมูลถูกลบไปแล้ว', ['status' => 500]);
+        }
+
+        return rest_ensure_response(['success' => true, 'message' => 'ลบข้อมูลสำเร็จ']);
+    }
+}
+
+function blupaper_get_tours_by_taxonomy($request) {
+    $taxonomy = $request['taxonomy'];
+    $term_id = (int)$request['id'];
+
+    $args = array(
+        // 🔴 จุดที่ผิดคือบรรทัดนี้ครับ แก้จาก 'tours' เป็น 'itineraries'
+        'post_type'      => 'itineraries', 
+        
+        'posts_per_page' => -1,
+        'post_status'    => 'publish', // หรือ 'any' ถ้าอยากให้โชว์ตัวที่ดราฟต์ด้วย
+        'tax_query'      => array(
+            array(
+                'taxonomy' => $taxonomy,
+                'field'    => 'term_id',
+                'terms'    => $term_id,
+            ),
+        ),
+    );
+
+    $query = new WP_Query($args);
+    $tours = array();
+
+    if ($query->have_posts()) {
+        while ($query->have_posts()) {
+            $query->the_post();
+            // ดึงข้อมูลมาใส่ Array
+            $tours[] = array(
+                'id'     => get_the_ID(),
+                'title'  => get_the_title(),
+                'code'   => get_field('trip_code') ?: 'N/A', // 🟢 เช็กด้วยว่าฟิลด์รหัสทัวร์คุณชื่ออะไร (น่าจะ trip_code)
+                'status' => get_post_status()
+            );
+        }
+    }
+    wp_reset_postdata();
+
+    return rest_ensure_response($tours); 
+}
+// ---------------------------------------------------------------------
 // 3) DESTINATION TAXONOMY ONLY
 // ---------------------------------------------------------------------
 if (!function_exists('blupaper_allowed_taxonomies')) {
     function blupaper_allowed_taxonomies() {
-        // เพิ่ม 'festival' และ 'month' เข้าไปใน Array (สมมติว่า Taxonomy Key ของคุณชื่อนี้)
-        return ['travel_locations', 'festival', 'month']; 
+
+        return ['travel_locations', 'festival', 'month', 'itinerary_pricing_category']; 
     }
 }
 
 if (!function_exists('blupaper_validate_taxonomy')) {
     function blupaper_validate_taxonomy($taxonomy) {
         $taxonomy = sanitize_key((string) $taxonomy);
-
-        if (!in_array($taxonomy, blupaper_allowed_taxonomies(), true)) {
-            return new WP_Error('invalid_taxonomy', 'taxonomy นี้ไม่ได้รับอนุญาต', ['status' => 400]);
-        }
-
-        if (!taxonomy_exists($taxonomy)) {
-            return new WP_Error('taxonomy_not_found', 'ไม่พบ taxonomy ในระบบ', ['status' => 404]);
-        }
-
+        if (!in_array($taxonomy, blupaper_allowed_taxonomies(), true)) return new WP_Error('invalid_taxonomy', 'taxonomy นี้ไม่ได้รับอนุญาต', ['status' => 400]);
+        if (!taxonomy_exists($taxonomy)) return new WP_Error('taxonomy_not_found', 'ไม่พบ taxonomy ในระบบ', ['status' => 404]);
         return $taxonomy;
     }
 }
-
+// ---------------------------------------------------------------------
+// 1. ฟังก์ชัน ดึงข้อมูล Taxonomy (เพิ่มรองรับ ACF: category_thumbnail และ category_en_name)
+// ---------------------------------------------------------------------
 if (!function_exists('blupaper_get_taxonomy_terms')) {
     function blupaper_get_taxonomy_terms(WP_REST_Request $request) {
         $taxonomy = blupaper_validate_taxonomy($request['taxonomy']);
+        if (is_wp_error($taxonomy)) return $taxonomy;
 
-        if (is_wp_error($taxonomy)) {
-            return $taxonomy;
-        }
-
-        $terms = get_terms([
-            'taxonomy'   => $taxonomy,
-            'hide_empty' => false,
-            'orderby'    => 'name',
-            'order'      => 'ASC',
-        ]);
-
-        if (is_wp_error($terms)) {
-            return $terms;
-        }
+        $terms = get_terms(['taxonomy' => $taxonomy, 'hide_empty' => false, 'orderby' => 'name', 'order' => 'ASC']);
+        if (is_wp_error($terms)) return $terms;
 
         $result = array_map(function ($term) {
+            $term_id = (int) $term->term_id;
+            $acf_term_id = $term->taxonomy . '_' . $term_id; // 🟢 รูปแบบอ้างอิง ID ของ ACF สำหรับ Taxonomy
+
+            // ดึงค่าจาก ACF
+            $en_name = function_exists('get_field') ? get_field('category_en_name', $acf_term_id) : '';
+            $acf_image = function_exists('get_field') ? get_field('category_thumbnail', $acf_term_id) : null;
+            
+            $image_url = '';
+            $image_id = '';
+
+            // แกะ URL รูปออกมา
+            if (!empty($acf_image)) {
+                if (is_array($acf_image) && isset($acf_image['url'])) {
+                    $image_url = $acf_image['url'];
+                    $image_id = $acf_image['ID'] ?? '';
+                } elseif (is_numeric($acf_image)) {
+                    $image_id = $acf_image;
+                    $image_url = wp_get_attachment_url($image_id);
+                } elseif (is_string($acf_image)) {
+                    $image_url = $acf_image;
+                }
+            }
+
             return [
-                'id'    => (int) $term->term_id,
-                'name'  => $term->name,
-                'slug'  => $term->slug,
+                'id' => $term_id, 
+                'name' => $term->name, 
+                'slug' => $term->slug, 
                 'count' => (int) $term->count,
+                'description' => $term->description,
+                'category_en_name' => $en_name, // 🟢 ส่งชื่อ EN กลับไป
+                'rank_math_title' => get_term_meta($term_id, 'rank_math_title', true),
+                'rank_math_description' => get_term_meta($term_id, 'rank_math_description', true),
+                'rank_math_focus_keyword' => get_term_meta($term_id, 'rank_math_focus_keyword', true),
+                'image_id' => $image_id, 
+                'image_url' => $image_url // 🟢 ส่ง URL กลับไป
             ];
         }, $terms);
 
-        return rest_ensure_response([
-            'success'  => true,
-            'taxonomy' => $taxonomy,
-            'items'    => $result,
-        ]);
+        return rest_ensure_response(['success' => true, 'taxonomy' => $taxonomy, 'items' => $result]);
     }
 }
 
+// ---------------------------------------------------------------------
+// 2. ฟังก์ชัน สร้างข้อมูลใหม่ (รองรับ ACF)
+// ---------------------------------------------------------------------
 if (!function_exists('blupaper_create_taxonomy_term')) {
     function blupaper_create_taxonomy_term(WP_REST_Request $request) {
         $taxonomy = blupaper_validate_taxonomy($request['taxonomy']);
-
-        if (is_wp_error($taxonomy)) {
-            return $taxonomy;
-        }
+        if (is_wp_error($taxonomy)) return $taxonomy;
 
         $name = sanitize_text_field($request->get_param('name'));
         $slug = sanitize_title($request->get_param('slug'));
+        $description = sanitize_textarea_field($request->get_param('description'));
 
-        if ($name === '') {
-            return new WP_Error('missing_name', 'กรุณาระบุชื่อ term', ['status' => 400]);
-        }
-
-        $exists = term_exists($name, $taxonomy);
-
-        if ($exists) {
-            $term_id = is_array($exists) ? (int) $exists['term_id'] : (int) $exists;
-            $term = get_term($term_id, $taxonomy);
-
-            if ($term && !is_wp_error($term)) {
-                return rest_ensure_response([
-                    'success' => true,
-                    'created' => false,
-                    'term' => [
-                        'id'   => (int) $term->term_id,
-                        'name' => $term->name,
-                        'slug' => $term->slug,
-                    ],
-                    'message' => 'มี term นี้อยู่แล้ว',
-                ]);
-            }
-        }
+        if ($name === '') return new WP_Error('missing_name', 'กรุณาระบุชื่อ term', ['status' => 400]);
 
         $args = [];
-        if ($slug !== '') {
-            $args['slug'] = $slug;
-        }
+        if ($slug !== '') $args['slug'] = $slug;
+        if ($description !== '') $args['description'] = $description;
 
         $created = wp_insert_term($name, $taxonomy, $args);
+        if (is_wp_error($created)) return $created;
 
-        if (is_wp_error($created)) {
-            return $created;
+        $term_id = (int) $created['term_id'];
+        $acf_term_id = $taxonomy . '_' . $term_id; // 🟢 อ้างอิง ID สำหรับ ACF
+
+        // เซฟ Rank Math
+        $rm_title   = sanitize_text_field($request->get_param('rank_math_title'));
+        $rm_desc    = sanitize_textarea_field($request->get_param('rank_math_description'));
+        $rm_keyword = sanitize_text_field($request->get_param('rank_math_focus_keyword'));
+
+        if ($rm_title !== '') update_term_meta($term_id, 'rank_math_title', $rm_title);
+        if ($rm_desc !== '') update_term_meta($term_id, 'rank_math_description', $rm_desc);
+        if ($rm_keyword !== '') update_term_meta($term_id, 'rank_math_focus_keyword', $rm_keyword);
+
+        // 🟢 เซฟ ACF Fields (ชื่อ EN และ รูปภาพ)
+        if (function_exists('update_field')) {
+            $en_name = sanitize_text_field($request->get_param('category_en_name'));
+            $image_id = absint($request->get_param('category_thumbnail'));
+
+            if ($en_name !== '') update_field('category_en_name', $en_name, $acf_term_id);
+            if ($image_id > 0) update_field('category_thumbnail', $image_id, $acf_term_id);
         }
 
-        $term = get_term((int) $created['term_id'], $taxonomy);
+        return rest_ensure_response(['success' => true, 'message' => 'สร้างหมวดหมู่สำเร็จ']);
+    }
+}
 
-        return rest_ensure_response([
-            'success' => true,
-            'created' => true,
-            'term' => [
-                'id'   => (int) $term->term_id,
-                'name' => $term->name,
-                'slug' => $term->slug,
-            ],
-            'message' => 'สร้าง term สำเร็จ',
-        ]);
+
+// ---------------------------------------------------------------------
+// ฟังก์ชันเปลี่ยนสถานะด่วน (Quick Edit Status) ป้องกันข้อมูลอื่นหาย
+// ---------------------------------------------------------------------
+if (!function_exists('blupaper_quick_update_status')) {
+    function blupaper_quick_update_status($request) {
+        $post_id = (int) $request['id'];
+        $params  = $request->get_json_params();
+        $new_status = sanitize_text_field($params['status'] ?? 'draft');
+
+        if (get_post_type($post_id) !== 'itineraries') {
+            return new WP_Error('not_found', 'ไม่พบข้อมูลทัวร์', array('status' => 404));
+        }
+
+        // อัปเดตเฉพาะสถานะ โดยไม่แตะต้องชื่อเรื่องหรือเนื้อหาอื่นๆ!
+        wp_update_post(array(
+            'ID'          => $post_id,
+            'post_status' => $new_status
+        ));
+
+        return rest_ensure_response(array('success' => true, 'message' => 'เปลี่ยนสถานะเรียบร้อยแล้ว'));
     }
 }
 
@@ -505,617 +745,477 @@ if (!function_exists('blupaper_create_taxonomy_term')) {
 // ---------------------------------------------------------------------
 if (!function_exists('blupaper_get_acf_option_list')) {
     function blupaper_get_acf_option_list($field_name) {
-    $rows = get_field($field_name, 'option');
-
-    if (!is_array($rows)) {
-        $rows = [];
-    }
-
-    $items = [];
-
-    foreach ($rows as $index => $row) {
-        $name = '';
-
-        if (is_array($row) && isset($row['name'])) {
-            $name = sanitize_text_field($row['name']);
-        } elseif (is_string($row)) {
-            $name = sanitize_text_field($row);
+        $rows = get_field($field_name, 'option');
+        if (!is_array($rows)) $rows = [];
+        $items = [];
+        foreach ($rows as $index => $row) {
+            $name = '';
+            if (is_array($row) && isset($row['name'])) $name = sanitize_text_field($row['name']);
+            elseif (is_string($row)) $name = sanitize_text_field($row);
+            if ($name === '') continue;
+            $items[] = ['id' => (int) ($index + 1), 'name' => $name, 'slug' => sanitize_title($name)];
         }
-
-        if ($name === '') {
-            continue;
-        }
-
-        $items[] = [
-            'id'   => (int) ($index + 1),
-            'name' => $name,
-            'slug' => sanitize_title($name),
-        ];
+        return $items;
     }
-
-    return $items;
-}
 }
 
 if (!function_exists('blupaper_get_acf_options_handler')) {
     function blupaper_get_acf_options_handler(WP_REST_Request $request) {
-    $type = sanitize_key($request['type']);
-
-    if ($type === 'festival') {
-        $rows = function_exists('get_field') ? get_field('festival_options', 'option') : null;
-
-        return rest_ensure_response([
-            'success' => true,
-            'type'    => 'festival',
-            'raw'     => $rows,
-            'items'   => blupaper_get_acf_option_list('festival_options'),
-        ]);
+        $type = sanitize_key($request['type']);
+        if ($type === 'festival') {
+            $rows = function_exists('get_field') ? get_field('festival_options', 'option') : null;
+            return rest_ensure_response(['success' => true, 'type' => 'festival', 'raw' => $rows, 'items' => blupaper_get_acf_option_list('festival_options')]);
+        }
+        if ($type === 'month') {
+            $rows = function_exists('get_field') ? get_field('month_options', 'option') : null;
+            return rest_ensure_response(['success' => true, 'type' => 'month', 'raw' => $rows, 'items' => blupaper_get_acf_option_list('month_options')]);
+        }
+        return new WP_Error('invalid_type', 'ไม่พบประเภทข้อมูล ACF options', ['status' => 400]);
     }
-
-    if ($type === 'month') {
-        $rows = function_exists('get_field') ? get_field('month_options', 'option') : null;
-
-        return rest_ensure_response([
-            'success' => true,
-            'type'    => 'month',
-            'raw'     => $rows,
-            'items'   => blupaper_get_acf_option_list('month_options'),
-        ]);
-    }
-
-    return new WP_Error('invalid_type', 'ไม่พบประเภทข้อมูล ACF options', ['status' => 400]);
-}
 }
 
 // ---------------------------------------------------------------------
 // 5) HELPERS
 // ---------------------------------------------------------------------
-if (!function_exists('blupaper_sanitize_html_field')) {
-    function blupaper_sanitize_html_field($value) {
-        return wp_kses_post((string) $value);
-    }
-}
-
-if (!function_exists('blupaper_sanitize_text_field_safe')) {
-    function blupaper_sanitize_text_field_safe($value) {
-        return sanitize_text_field((string) $value);
-    }
-}
-
+if (!function_exists('blupaper_sanitize_html_field')) { function blupaper_sanitize_html_field($value) { return wp_kses_post((string) $value); } }
+if (!function_exists('blupaper_sanitize_text_field_safe')) { function blupaper_sanitize_text_field_safe($value) { return sanitize_text_field((string) $value); } }
 if (!function_exists('blupaper_normalize_date')) {
     function blupaper_normalize_date($date_string) {
         $date_string = trim((string) $date_string);
-
-        if ($date_string === '') {
-            return null;
-        }
-
+        if ($date_string === '') return null;
         $timestamp = strtotime($date_string);
-        if (!$timestamp) {
-            return null;
-        }
-
+        if (!$timestamp) return null;
         return gmdate('Y-m-d', $timestamp);
     }
 }
-
 if (!function_exists('blupaper_extract_days_nights')) {
     function blupaper_extract_days_nights($text) {
-        $display_days = 0;
-        $nights = 0;
-
+        $display_days = 0; $nights = 0;
         preg_match_all('/\d+/', (string) $text, $matches);
-
-        if (!empty($matches[0][0])) {
-            $display_days = (int) $matches[0][0];
-        }
-
-        if (!empty($matches[0][1])) {
-            $nights = (int) $matches[0][1];
-        }
-
-        return [
-            'display_days' => $display_days,
-            'days'         => $display_days,
-            'nights'       => $nights,
-        ];
+        if (!empty($matches[0][0])) $display_days = (int) $matches[0][0];
+        if (!empty($matches[0][1])) $nights = (int) $matches[0][1];
+        return ['display_days' => $display_days, 'days' => $display_days, 'nights' => $nights];
     }
 }
-
 if (!function_exists('blupaper_clean_price_amount')) {
     function blupaper_clean_price_amount($value) {
-        if (is_numeric($value)) {
-            return (float) $value;
-        }
-
+        if (is_numeric($value)) return (float) $value;
         $clean = preg_replace('/[^\d.]/', '', (string) $value);
         return $clean !== '' ? (float) $clean : 0;
     }
 }
-
 if (!function_exists('blupaper_get_or_create_wte_price_term_id')) {
     function blupaper_get_or_create_wte_price_term_id($cat_name) {
         global $wpdb;
-
         $cat_name = trim(wp_strip_all_tags((string) $cat_name));
-        if ($cat_name === '') {
-            return 0;
-        }
-
-        $existing_term_id = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT term_id
-                 FROM {$wpdb->terms}
-                 WHERE name = %s
-                 ORDER BY term_id ASC
-                 LIMIT 1",
-                $cat_name
-            )
-        );
-
-        if ($existing_term_id) {
-            return (int) $existing_term_id;
-        }
-
+        if ($cat_name === '') return 0;
+        $existing_term_id = $wpdb->get_var($wpdb->prepare("SELECT term_id FROM {$wpdb->terms} WHERE name = %s ORDER BY term_id ASC LIMIT 1", $cat_name));
+        if ($existing_term_id) return (int) $existing_term_id;
         $slug = sanitize_title($cat_name);
         $base_slug = $slug ?: 'pricing-category';
         $slug = $base_slug;
         $suffix = 2;
-
         while ($wpdb->get_var($wpdb->prepare("SELECT term_id FROM {$wpdb->terms} WHERE slug = %s LIMIT 1", $slug))) {
             $slug = $base_slug . '-' . $suffix;
             $suffix++;
         }
-
-        $inserted = $wpdb->insert(
-            $wpdb->terms,
-            [
-                'name'       => $cat_name,
-                'slug'       => $slug,
-                'term_group' => 0,
-            ],
-            ['%s', '%s', '%d']
-        );
-
-        if (!$inserted) {
-            return 0;
-        }
-
+        $inserted = $wpdb->insert($wpdb->terms, ['name' => $cat_name, 'slug' => $slug, 'term_group' => 0], ['%s', '%s', '%d']);
+        if (!$inserted) return 0;
         return (int) $wpdb->insert_id;
     }
 }
-
 if (!function_exists('blupaper_build_price_range_title')) {
     function blupaper_build_price_range_title(array $normalized_prices) {
         $amounts = [];
-
         foreach ($normalized_prices as $item) {
             $amount = isset($item['amount']) ? (float) $item['amount'] : 0;
-            if ($amount > 0) {
-                $amounts[] = $amount;
-            }
+            if ($amount > 0) $amounts[] = $amount;
         }
-
-        if (empty($amounts)) {
-            return '0-0';
-        }
-
-        $min = (int) min($amounts);
-        $max = (int) max($amounts);
-
-        if ($min === $max) {
-            return (string) $min;
-        }
-
+        if (empty($amounts)) return '0-0';
+        $min = (int) min($amounts); $max = (int) max($amounts);
+        if ($min === $max) return (string) $min;
         return $min . '-' . $max;
     }
 }
-
 if (!function_exists('blupaper_build_date_range_title')) {
     function blupaper_build_date_range_title($start_date, $end_date) {
-        if (!$start_date && !$end_date) {
-            return '';
-        }
-
-        if ($start_date && !$end_date) {
-            return date_i18n('d/m/Y', strtotime($start_date));
-        }
-
-        if (!$start_date && $end_date) {
-            return date_i18n('d/m/Y', strtotime($end_date));
-        }
-
+        if (!$start_date && !$end_date) return '';
+        if ($start_date && !$end_date) return date_i18n('d/m/Y', strtotime($start_date));
+        if (!$start_date && $end_date) return date_i18n('d/m/Y', strtotime($end_date));
         $start = date_i18n('d/m/Y', strtotime($start_date));
         $end   = date_i18n('d/m/Y', strtotime($end_date));
-
-        if ($start_date === $end_date) {
-            return $start;
-        }
-
+        if ($start_date === $end_date) return $start;
         return $start . ' - ' . $end;
     }
 }
-
 if (!function_exists('blupaper_prepare_advanced_gallery_meta')) {
     function blupaper_prepare_advanced_gallery_meta(array $image_ids) {
         $items = [];
-
         foreach (array_values($image_ids) as $index => $attachment_id) {
             $attachment_id = absint($attachment_id);
-
-            if ($attachment_id > 0) {
-                $items[] = [
-                    'index' => (string) $index,
-                    'id'    => (string) $attachment_id,
-                ];
-            }
+            if ($attachment_id > 0) $items[] = ['index' => (string) $index, 'id' => (string) $attachment_id];
         }
-
-        return [
-            'items' => $items,
-        ];
+        return ['items' => $items];
     }
 }
-
 if (!function_exists('blupaper_normalize_term_ids')) {
     function blupaper_normalize_term_ids($value) {
-        if (!is_array($value)) {
-            return [];
-        }
-
+        if (!is_array($value)) return [];
         $value = array_map('intval', $value);
-        $value = array_filter($value, function ($id) {
-            return $id > 0;
-        });
-
+        $value = array_filter($value, function ($id) { return $id > 0; });
         return array_values(array_unique($value));
     }
 }
-
 if (!function_exists('blupaper_filter_valid_image_attachment_ids')) {
     function blupaper_filter_valid_image_attachment_ids($ids) {
         $valid = [];
-
-        if (!is_array($ids)) {
-            return $valid;
-        }
-
+        if (!is_array($ids)) return $valid;
         foreach ($ids as $attachment_id) {
             $attachment_id = absint($attachment_id);
-
-            if (
-                $attachment_id > 0 &&
-                get_post($attachment_id) &&
-                wp_attachment_is_image($attachment_id)
-            ) {
-                $valid[] = $attachment_id;
-            }
+            if ($attachment_id > 0 && get_post($attachment_id) && wp_attachment_is_image($attachment_id)) $valid[] = $attachment_id;
         }
-
         return array_values(array_unique($valid));
     }
 }
-
 if (!function_exists('blupaper_normalize_string_list')) {
     function blupaper_normalize_string_list($value) {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $items = array_map(function ($item) {
-            return sanitize_text_field((string) $item);
-        }, $value);
-
-        $items = array_filter($items, function ($item) {
-            return $item !== '';
-        });
-
+        if (!is_array($value)) return [];
+        $items = array_map(function ($item) { return sanitize_text_field((string) $item); }, $value);
+        $items = array_filter($items, function ($item) { return $item !== ''; });
         return array_values(array_unique($items));
     }
 }
 
 // ---------------------------------------------------------------------
-// 6) CREATE TOUR
+// 6) TOUR CRUD FUNCTIONS (Create, Read All, Read Single, Update, Delete)
 // ---------------------------------------------------------------------
+
+// CREATE TOUR
 if (!function_exists('blupaper_create_tour_handler')) {
     function blupaper_create_tour_handler(WP_REST_Request $request) {
         global $wpdb;
-
         $params  = $request->get_json_params();
         $post_id = 0;
 
-        if (!is_array($params)) {
-            return new WP_Error('invalid_payload', 'ข้อมูลที่ส่งมาไม่ถูกต้อง', ['status' => 400]);
-        }
+        if (!is_array($params)) return new WP_Error('invalid_payload', 'ข้อมูลที่ส่งมาไม่ถูกต้อง', ['status' => 400]);
 
         $title     = blupaper_sanitize_text_field_safe($params['title'] ?? '');
         $trip_code = blupaper_sanitize_text_field_safe($params['trip_code'] ?? '');
 
-        if ($title === '') {
-            return new WP_Error('missing_title', 'กรุณาระบุชื่อโปรแกรมทัวร์', ['status' => 400]);
-        }
-
-        if ($trip_code === '') {
-            return new WP_Error('missing_trip_code', 'กรุณาระบุรหัสทัวร์', ['status' => 400]);
-        }
+        if ($title === '') return new WP_Error('missing_title', 'กรุณาระบุชื่อโปรแกรมทัวร์', ['status' => 400]);
+        if ($trip_code === '') return new WP_Error('missing_trip_code', 'กรุณาระบุรหัสทัวร์', ['status' => 400]);
 
         $wt_pricings_table                = "{$wpdb->prefix}wt_pricings";
         $wt_dates_table                   = "{$wpdb->prefix}wt_dates";
         $wt_price_category_relation_table = "{$wpdb->prefix}wt_price_category_relation";
 
         try {
-            // A) CREATE POST
             $post_data = [
                 'post_title'   => $title,
                 'post_excerpt' => blupaper_sanitize_html_field($params['excerpt'] ?? ''),
                 'post_content' => blupaper_sanitize_html_field($params['content'] ?? ''),
-                'post_status'  => 'draft',
+                'post_status'  => sanitize_text_field($params['status'] ?? 'draft'), // 🟢 รับค่าสถานะจากฟอร์ม
                 'post_type'    => 'itineraries',
             ];
 
             $post_id = wp_insert_post($post_data, true);
+            if (is_wp_error($post_id)) throw new Exception($post_id->get_error_message());
 
-            if (is_wp_error($post_id)) {
-                throw new Exception($post_id->get_error_message());
-            }
-
-            // B) BASIC META
-            $text_meta_fields = [
-                'trip_code',
-                'trip_price_display',
-                'trip_schedule',
-                'tour_hotel_rating',
-                'tour_airlines',
-                'tour_highlight',
-            ];
-
+            $text_meta_fields = ['trip_code', 'trip_price_display', 'trip_schedule', 'tour_hotel_rating', 'tour_airlines', 'tour_highlight'];
             foreach ($text_meta_fields as $meta_key) {
-                if (isset($params[$meta_key])) {
-                    update_post_meta($post_id, $meta_key, blupaper_sanitize_text_field_safe($params[$meta_key]));
-                }
+                if (isset($params[$meta_key])) update_post_meta($post_id, $meta_key, blupaper_sanitize_text_field_safe($params[$meta_key]));
             }
 
-            if (isset($params['tour_schedule_details'])) {
-                update_post_meta(
-                    $post_id,
-                    'tour_schedule_details',
-                    blupaper_sanitize_html_field($params['tour_schedule_details'])
-                );
-            }
-
-            if (isset($params['tour_pdf'])) {
-                update_post_meta($post_id, 'tour_pdf', absint($params['tour_pdf']));
-            }
-
+            if (isset($params['tour_schedule_details'])) update_post_meta($post_id, 'tour_schedule_details', blupaper_sanitize_html_field($params['tour_schedule_details']));
+            if (isset($params['tour_pdf'])) update_post_meta($post_id, 'tour_pdf', absint($params['tour_pdf']));
+            
             update_post_meta($post_id, 'wp_travel_trip_code', $trip_code);
             update_post_meta($post_id, 'trip_code', $trip_code);
 
-            if (isset($params['overview'])) {
-                update_post_meta($post_id, 'wp_travel_overview', blupaper_sanitize_html_field($params['overview']));
-            } elseif (isset($params['content'])) {
-                update_post_meta($post_id, 'wp_travel_overview', blupaper_sanitize_html_field($params['content']));
-            }
+            if (isset($params['overview'])) update_post_meta($post_id, 'wp_travel_overview', blupaper_sanitize_html_field($params['overview']));
+            elseif (isset($params['content'])) update_post_meta($post_id, 'wp_travel_overview', blupaper_sanitize_html_field($params['content']));
+            
+            if (isset($params['trip_outline'])) update_post_meta($post_id, 'wp_travel_outline', blupaper_sanitize_html_field($params['trip_outline']));
 
-            if (isset($params['trip_outline'])) {
-                update_post_meta($post_id, 'wp_travel_outline', blupaper_sanitize_html_field($params['trip_outline']));
-            }
-
-            // C) FEATURED IMAGE / GALLERY
             if (!empty($params['featured_image_id'])) {
                 $featured_image_id = absint($params['featured_image_id']);
-
-                if (
-                    $featured_image_id > 0 &&
-                    get_post($featured_image_id) &&
-                    wp_attachment_is_image($featured_image_id)
-                ) {
+                if ($featured_image_id > 0 && get_post($featured_image_id) && wp_attachment_is_image($featured_image_id)) {
                     set_post_thumbnail($post_id, $featured_image_id);
                     update_post_meta($post_id, '_thumbnail_id', $featured_image_id);
                 }
             }
 
             $gallery_ids = blupaper_filter_valid_image_attachment_ids($params['gallery_image_ids'] ?? []);
-
             update_post_meta($post_id, 'wp_travel_itinerary_gallery_ids', $gallery_ids);
             update_post_meta($post_id, 'wp_travel_advanced_gallery', blupaper_prepare_advanced_gallery_meta($gallery_ids));
 
-            // D) DAYS / NIGHTS
-            $days = 0;
-            $nights = 0;
-            $display_days = 0;
-
+            $days = 0; $nights = 0; $display_days = 0;
             if (!empty($params['trip_days_nights'])) {
                 $parsed = blupaper_extract_days_nights($params['trip_days_nights']);
-                $days         = (int) $parsed['days'];
-                $nights       = (int) $parsed['nights'];
-                $display_days = (int) $parsed['display_days'];
+                $days = (int) $parsed['days']; $nights = (int) $parsed['nights']; $display_days = (int) $parsed['display_days'];
             }
+            if (!empty($params['trip_days'])) { $days = absint($params['trip_days']); $display_days = $days; }
+            if (isset($params['trip_nights'])) { $nights = absint($params['trip_nights']); }
 
-            if (!empty($params['trip_days'])) {
-                $days = absint($params['trip_days']);
-                $display_days = $days;
-            }
+            update_post_meta($post_id, 'wp_travel_trip_duration', $days);
+            update_post_meta($post_id, 'wp_travel_trip_duration_night', $nights);
+            update_post_meta($post_id, 'wp_travel_trip_duration_nights', $nights);
+            update_post_meta($post_id, 'wp_travel_trip_duration_formatting', ['days' => (string) $days, 'nights' => (string) $nights]);
+            update_post_meta($post_id, 'wp_travel_trip_duration_start_date', '');
+            update_post_meta($post_id, 'wp_travel_trip_duration_end_date', '');
+            update_post_meta($post_id, 'wp_travel_fixed_departure', 'yes');
+            update_post_meta($post_id, '_wp_travel_fixed_departure', 'yes');
 
-            if (isset($params['trip_nights'])) {
-                $nights = absint($params['trip_nights']);
-            }
+            if (!empty($params['trip_days_nights'])) update_post_meta($post_id, 'trip_days_nights', blupaper_sanitize_text_field_safe($params['trip_days_nights']));
 
-update_post_meta($post_id, 'wp_travel_trip_duration', $days);
-update_post_meta($post_id, 'wp_travel_trip_duration_night', $nights);
-update_post_meta($post_id, 'wp_travel_trip_duration_nights', $nights);
-update_post_meta($post_id, 'wp_travel_trip_duration_formatting', [
-    'days'   => (string) $days,
-    'nights' => (string) $nights,
-]);
-update_post_meta($post_id, 'wp_travel_trip_duration_start_date', '');
-update_post_meta($post_id, 'wp_travel_trip_duration_end_date', '');
-
-update_post_meta($post_id, 'wp_travel_fixed_departure', 'yes');
-update_post_meta($post_id, '_wp_travel_fixed_departure', 'yes');
-
-            if (!empty($params['trip_days_nights'])) {
-                update_post_meta(
-                    $post_id,
-                    'trip_days_nights',
-                    blupaper_sanitize_text_field_safe($params['trip_days_nights'])
-                );
-            }
-
-           // E) DESTINATION TAXONOMY
             $destination_ids = blupaper_normalize_term_ids($params['destination_ids'] ?? []);
+            $festival_ids    = blupaper_normalize_term_ids($params['festival_ids'] ?? []);
+            $month_ids       = blupaper_normalize_term_ids($params['month_ids'] ?? []);
+
             wp_set_object_terms($post_id, $destination_ids, 'travel_locations', false);
-
-            // ----------------------------------------------------
-            // F) FESTIVAL / MONTH TAXONOMIES (แก้ไขใหม่ทั้งหมด)
-            // ----------------------------------------------------
-            $festival_ids = blupaper_normalize_term_ids($params['festival_ids'] ?? []);
-            $month_ids    = blupaper_normalize_term_ids($params['month_ids'] ?? []);
-
-            // บันทึกความสัมพันธ์ของหมวดหมู่เข้ากับ Post (ทัวร์)
             wp_set_object_terms($post_id, $festival_ids, 'festival', false);
             wp_set_object_terms($post_id, $month_ids, 'month', false);
 
-    
-           // G) PRICING DATA
+            $trip_pricing_data = isset($params['trip_pricing_data']) && is_array($params['trip_pricing_data']) ? $params['trip_pricing_data'] : [];
 
-           $trip_pricing_data = isset($params['trip_pricing_data']) && is_array($params['trip_pricing_data'])
-    ? $params['trip_pricing_data']
-    : [];
+            if (!empty($trip_pricing_data)) {
+                foreach ($trip_pricing_data as $pricing_index => $pricing_item) {
+                    if (!is_array($pricing_item)) continue;
 
-if (!empty($trip_pricing_data)) {
-    foreach ($trip_pricing_data as $pricing_index => $pricing_item) {
-        if (!is_array($pricing_item)) {
-            continue;
-        }
+                    $start_date = blupaper_normalize_date($pricing_item['start_date'] ?? '');
+                    $end_date   = blupaper_normalize_date($pricing_item['end_date'] ?? '');
+                    $prices     = isset($pricing_item['prices']) && is_array($pricing_item['prices']) ? $pricing_item['prices'] : [];
+                    $normalized_prices = [];
 
-        $start_date = blupaper_normalize_date($pricing_item['start_date'] ?? '');
-        $end_date   = blupaper_normalize_date($pricing_item['end_date'] ?? '');
-        $prices     = isset($pricing_item['prices']) && is_array($pricing_item['prices'])
-            ? $pricing_item['prices']
-            : [];
+                    foreach ($prices as $price_item) {
+                        if (!is_array($price_item)) continue;
+                        $category = trim(wp_strip_all_tags((string) ($price_item['category'] ?? '')));
+                        $amount   = blupaper_clean_price_amount($price_item['amount'] ?? 0);
+                        if ($category === '') continue;
+                        $normalized_prices[] = ['category' => $category, 'amount' => $amount];
+                    }
 
-        $normalized_prices = [];
+                    if (!$start_date && !$end_date && empty($normalized_prices)) continue;
 
-        foreach ($prices as $price_item) {
-            if (!is_array($price_item)) {
-                continue;
+                    $date_title  = blupaper_build_date_range_title($start_date, $end_date);
+                    $price_title = blupaper_build_price_range_title($normalized_prices);
+
+                    $inserted_pricing = $wpdb->insert($wt_pricings_table, ['trip_id' => $post_id, 'title' => $price_title, 'min_pax' => 0, 'max_pax' => 20, 'has_group_price' => 0, 'group_prices' => 'a:0:{}', 'sort_order' => $pricing_index + 1], ['%d', '%s', '%d', '%d', '%d', '%s', '%d']);
+                    if ($inserted_pricing === false) throw new Exception("บันทึกราคาหลักไม่สำเร็จ: " . $wpdb->last_error);
+
+                    $pricing_id = (int) $wpdb->insert_id;
+
+                    foreach ($normalized_prices as $price_row) {
+                        $term_id = blupaper_get_or_create_wte_price_term_id($price_row['category']);
+                        if ($term_id <= 0) continue;
+                        wp_set_object_terms($post_id, [$term_id], 'wt_pricing_category', true);
+                        $inserted_rel = $wpdb->insert($wt_price_category_relation_table, ['pricing_id' => $pricing_id, 'pricing_category_id' => $term_id, 'price_per' => 'person', 'regular_price' => (string) $price_row['amount'], 'is_sale' => 0, 'sale_price' => '0', 'is_sale_percentage' => '0', 'sale_percentage_val' => '0', 'has_group_price' => 0, 'group_prices' => 'a:0:{}', 'default_pax' => 0], ['%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%d']);
+                        if ($inserted_rel === false) throw new Exception("บันทึกหมวดหมู่ราคาไม่สำเร็จ: " . $wpdb->last_error);
+                    }
+
+                    $inserted_date = $wpdb->insert($wt_dates_table, ['trip_id' => $post_id, 'title' => $date_title, 'start_date' => $start_date, 'end_date' => $end_date, 'pricing_ids' => (string) $pricing_id, 'custom_link' => '', 'recurring' => 0, 'booking_status' => ''], ['%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s']);
+                    if ($inserted_date === false) throw new Exception("บันทึกวันเดินทางไม่สำเร็จ: " . $wpdb->last_error);
+                }
             }
 
-            $category = trim(wp_strip_all_tags((string) ($price_item['category'] ?? '')));
-            $amount   = blupaper_clean_price_amount($price_item['amount'] ?? 0);
-
-            if ($category === '') {
-                continue;
-            }
-
-            $normalized_prices[] = [
-                'category' => $category,
-                'amount'   => $amount,
-            ];
-        }
-
-        if (!$start_date && !$end_date && empty($normalized_prices)) {
-            continue;
-        }
-
-        $date_title  = blupaper_build_date_range_title($start_date, $end_date);
-        $price_title = blupaper_build_price_range_title($normalized_prices);
-
-        // 1) สร้าง pricing ก่อน
-        $inserted_pricing = $wpdb->insert(
-            $wt_pricings_table,
-            [
-                'trip_id'         => $post_id,
-                'title'           => $price_title,
-                'min_pax'         => 0,
-                'max_pax'         => 20,
-                'has_group_price' => 0,
-                'group_prices'    => 'a:0:{}',
-                'sort_order'      => $pricing_index + 1,
-            ],
-            ['%d', '%s', '%d', '%d', '%d', '%s', '%d']
-        );
-
-        if ($inserted_pricing === false) {
-            throw new Exception("บันทึกราคาหลักไม่สำเร็จ: " . $wpdb->last_error);
-        }
-
-        $pricing_id = (int) $wpdb->insert_id;
-
-        // 2) ผูกราคาย่อยกับ pricing
-        foreach ($normalized_prices as $price_row) {
-            $term_id = blupaper_get_or_create_wte_price_term_id($price_row['category']);
-            if ($term_id <= 0) {
-                continue;
-            }
-
-            wp_set_object_terms($post_id, [$term_id], 'wt_pricing_category', true);
-
-            $inserted_rel = $wpdb->insert(
-                $wt_price_category_relation_table,
-                [
-                    'pricing_id'          => $pricing_id,
-                    'pricing_category_id' => $term_id,
-                    'price_per'           => 'person',
-                    'regular_price'       => (string) $price_row['amount'],
-                    'is_sale'             => 0,
-                    'sale_price'          => '0',
-                    'is_sale_percentage'  => '0',
-                    'sale_percentage_val' => '0',
-                    'has_group_price'     => 0,
-                    'group_prices'        => 'a:0:{}',
-                    'default_pax'         => 0,
-                ],
-                ['%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%d']
-            );
-
-            if ($inserted_rel === false) {
-                throw new Exception("บันทึกหมวดหมู่ราคาไม่สำเร็จ: " . $wpdb->last_error);
-            }
-        }
-
-        // 3) ค่อยสร้าง date แล้วผูก pricing_ids
-        $inserted_date = $wpdb->insert(
-            $wt_dates_table,
-            [
-                'trip_id'        => $post_id,
-                'title'          => $date_title,
-                'start_date'     => $start_date,
-                'end_date'       => $end_date,
-                'pricing_ids'    => (string) $pricing_id,
-                'custom_link'    => '',
-                'recurring'      => 0,
-                'booking_status' => '',
-            ],
-            ['%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s']
-        );
-
-        if ($inserted_date === false) {
-            throw new Exception("บันทึกวันเดินทางไม่สำเร็จ: " . $wpdb->last_error);
+            return rest_ensure_response(['success' => true, 'message' => 'สร้างทัวร์สำเร็จ', 'post_id' => (int) $post_id, 'gallery_image_ids' => $gallery_ids, 'destination_ids' => $destination_ids, 'festival_ids' => $festival_ids, 'month_ids' => $month_ids]);
+        } catch (Throwable $e) {
+            if ($post_id > 0) wp_delete_post($post_id, true);
+            return new WP_Error('create_tour_failed', 'ไม่สามารถสร้างทัวร์ได้: ' . $e->getMessage(), ['status' => 500]);
         }
     }
 }
 
-            // H) RESPONSE
-            return rest_ensure_response([
-                'success' => true,
-                'message' => 'สร้างทัวร์สำเร็จ',
-                'post_id' => (int) $post_id,
-                'gallery_image_ids' => $gallery_ids,
-                'destination_ids'   => $destination_ids,
-             'festival_ids'      => $festival_ids, // 🟢 ต้องแก้เป็น _ids
-                'month_ids'         => $month_ids,    // 🟢 ต้องแก้เป็น _ids
-            ]);
-        } catch (Throwable $e) {
-            if ($post_id > 0) {
-                wp_delete_post($post_id, true);
-            }
+// READ ALL TOURS
+if (!function_exists('blupaper_get_all_tours')) {
+    function blupaper_get_all_tours($request) {
+        $args = array(
+            'post_type' => 'itineraries',
+            'posts_per_page' => -1,
+            'post_status' => array('publish', 'draft', 'pending', 'private') // 🟢 ดึงทุกสถานะ ป้องกัน Draft หาย
+        );
+        $query = new WP_Query($args);
+        $tours = array();
 
-            return new WP_Error(
-                'create_tour_failed',
-                'ไม่สามารถสร้างทัวร์ได้: ' . $e->getMessage(),
-                ['status' => 500]
-            );
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $post_id = get_the_ID();
+                $tours[] = array(
+                    'id' => $post_id,
+                    'title' => get_the_title(),
+                    'status' => get_post_status($post_id), // 🟢 ส่งสถานะ
+                    'trip_code' => get_field('trip_code', $post_id),
+                    'trip_price_display' => get_field('trip_price_display', $post_id),
+                    'trip_days_nights' => get_field('trip_days_nights', $post_id),
+                    'tour_airlines' => get_field('tour_airlines', $post_id),
+                    'featured_image_url' => get_the_post_thumbnail_url($post_id, 'medium_large')
+                );
+            }
+            wp_reset_postdata();
         }
+        return rest_ensure_response(array('success' => true, 'items' => $tours));
+    }
+}
+
+// READ SINGLE TOUR
+if (!function_exists('blupaper_get_single_tour')) {
+    function blupaper_get_single_tour($request) {
+        $post_id = (int) $request['id'];
+
+        if (get_post_type($post_id) !== 'itineraries') {
+            return new WP_Error('not_found', 'ไม่พบข้อมูลโปรแกรมทัวร์', array('status' => 404));
+        }
+
+        $tour_data = array(
+            'id' => $post_id,
+            'title' => get_the_title($post_id),
+            'status' => get_post_status($post_id), // 🟢 ส่งสถานะ
+            'trip_code' => get_post_meta($post_id, 'trip_code', true),
+            'trip_price_display' => get_post_meta($post_id, 'trip_price_display', true),
+            'trip_days_nights' => get_post_meta($post_id, 'trip_days_nights', true),
+            'trip_schedule' => get_post_meta($post_id, 'trip_schedule', true),
+            'tour_airlines' => get_post_meta($post_id, 'tour_airlines', true),
+            'tour_hotel_rating' => get_post_meta($post_id, 'tour_hotel_rating', true),
+            'excerpt' => get_post_field('post_excerpt', $post_id),
+            'content' => get_post_field('post_content', $post_id),
+            'overview' => get_post_meta($post_id, 'wp_travel_overview', true),
+            'tour_highlight' => get_post_meta($post_id, 'tour_highlight', true),
+            'tour_schedule_details' => get_post_meta($post_id, 'tour_schedule_details', true),
+            'featured_image_url' => get_the_post_thumbnail_url($post_id, 'medium_large'),
+            'tour_pdf_url' => wp_get_attachment_url(get_post_meta($post_id, 'tour_pdf', true)),
+            'destination_ids' => wp_get_post_terms($post_id, 'travel_locations', array('fields' => 'ids')),
+            'festival_ids' => wp_get_post_terms($post_id, 'festival', array('fields' => 'ids')),
+            'month_ids' => wp_get_post_terms($post_id, 'month', array('fields' => 'ids')),
+        );
+
+        global $wpdb;
+        $wt_dates_table = "{$wpdb->prefix}wt_dates";
+        $wt_price_cat_rel_table = "{$wpdb->prefix}wt_price_category_relation";
+
+        $dates = $wpdb->get_results($wpdb->prepare("SELECT * FROM $wt_dates_table WHERE trip_id = %d ORDER BY id ASC", $post_id));
+        $pricing_data = array();
+
+        if ($dates) {
+            foreach ($dates as $date) {
+                $prices = array();
+                $pricing_id = (int) $date->pricing_ids;
+                $price_rels = $wpdb->get_results($wpdb->prepare("SELECT * FROM $wt_price_cat_rel_table WHERE pricing_id = %d", $pricing_id));
+                if ($price_rels) {
+                    foreach ($price_rels as $rel) {
+                        $term = get_term($rel->pricing_category_id);
+                        $prices[] = array('category' => $term && !is_wp_error($term) ? $term->name : '', 'amount' => (float) $rel->regular_price);
+                    }
+                }
+                $pricing_data[] = array('start_date' => $date->start_date, 'end_date' => $date->end_date, 'prices' => $prices);
+            }
+        }
+        $tour_data['trip_pricing_data'] = empty($pricing_data) ? array(array('start_date' => '', 'end_date' => '', 'prices' => array(array('category' => 'ผู้ใหญ่ (พักคู่)', 'amount' => '')))) : $pricing_data;
+
+        return rest_ensure_response(array('success' => true, 'data' => $tour_data));
+    }
+}
+
+// UPDATE TOUR
+if (!function_exists('blupaper_update_tour_handler')) {
+    function blupaper_update_tour_handler($request) {
+        global $wpdb;
+        $post_id = (int) $request['id'];
+        $params  = $request->get_json_params();
+
+        if (get_post_type($post_id) !== 'itineraries') return new WP_Error('not_found', 'ไม่พบข้อมูลทัวร์ที่ต้องการแก้ไข', array('status' => 404));
+
+        // 🟢 อัปเดตข้อมูล และใส่ลูกน้ำ (,) ครบถ้วน ไม่มี Syntax Error
+        $post_data = array(
+            'ID'           => $post_id,
+            'post_title'   => sanitize_text_field($params['title'] ?? ''),
+            'post_excerpt' => wp_kses_post($params['excerpt'] ?? ''),
+            'post_content' => wp_kses_post($params['content'] ?? ''),
+            'post_status'  => sanitize_text_field($params['status'] ?? 'publish')
+        );
+        wp_update_post($post_data);
+
+        $meta_fields = ['trip_code', 'trip_price_display', 'trip_schedule', 'tour_hotel_rating', 'tour_airlines', 'tour_highlight', 'trip_days_nights'];
+        foreach ($meta_fields as $key) {
+            if (isset($params[$key])) update_post_meta($post_id, $key, sanitize_text_field($params[$key]));
+        }
+        if (isset($params['tour_schedule_details'])) update_post_meta($post_id, 'tour_schedule_details', wp_kses_post($params['tour_schedule_details']));
+        if (isset($params['overview'])) update_post_meta($post_id, 'wp_travel_overview', wp_kses_post($params['overview']));
+
+        if (!empty($params['featured_image_id'])) {
+            set_post_thumbnail($post_id, absint($params['featured_image_id']));
+            update_post_meta($post_id, '_thumbnail_id', absint($params['featured_image_id']));
+        }
+        if (isset($params['gallery_image_ids']) && is_array($params['gallery_image_ids'])) {
+            $gallery_ids = array_map('absint', $params['gallery_image_ids']);
+            update_post_meta($post_id, 'wp_travel_itinerary_gallery_ids', $gallery_ids);
+        }
+        if (isset($params['tour_pdf'])) update_post_meta($post_id, 'tour_pdf', absint($params['tour_pdf']));
+
+        if (isset($params['destination_ids'])) wp_set_object_terms($post_id, array_map('intval', $params['destination_ids']), 'travel_locations', false);
+        if (isset($params['festival_ids'])) wp_set_object_terms($post_id, array_map('intval', $params['festival_ids']), 'festival', false);
+        if (isset($params['month_ids'])) wp_set_object_terms($post_id, array_map('intval', $params['month_ids']), 'month', false);
+
+        $wt_pricings_table = "{$wpdb->prefix}wt_pricings";
+        $wt_dates_table    = "{$wpdb->prefix}wt_dates";
+        $wt_price_cat_rel_table = "{$wpdb->prefix}wt_price_category_relation";
+
+        $old_pricings = $wpdb->get_col($wpdb->prepare("SELECT id FROM $wt_pricings_table WHERE trip_id = %d", $post_id));
+        if (!empty($old_pricings)) {
+            $pricing_ids_str = implode(',', array_map('intval', $old_pricings));
+            $wpdb->query("DELETE FROM $wt_price_cat_rel_table WHERE pricing_id IN ($pricing_ids_str)");
+            $wpdb->query($wpdb->prepare("DELETE FROM $wt_pricings_table WHERE trip_id = %d", $post_id));
+        }
+        $wpdb->query($wpdb->prepare("DELETE FROM $wt_dates_table WHERE trip_id = %d", $post_id));
+
+        $trip_pricing_data = $params['trip_pricing_data'] ?? [];
+        if (!empty($trip_pricing_data)) {
+            foreach ($trip_pricing_data as $pricing_index => $pricing_item) {
+                if (!is_array($pricing_item)) continue;
+
+                $start_date = blupaper_normalize_date($pricing_item['start_date'] ?? '');
+                $end_date   = blupaper_normalize_date($pricing_item['end_date'] ?? '');
+                $prices     = $pricing_item['prices'] ?? [];
+                $normalized_prices = [];
+
+                foreach ($prices as $price_item) {
+                    if (!is_array($price_item)) continue;
+                    $category = trim(wp_strip_all_tags((string) ($price_item['category'] ?? '')));
+                    $amount   = blupaper_clean_price_amount($price_item['amount'] ?? 0);
+                    if ($category !== '') $normalized_prices[] = ['category' => $category, 'amount' => $amount];
+                }
+
+                if (!$start_date && !$end_date && empty($normalized_prices)) continue;
+
+                $date_title  = blupaper_build_date_range_title($start_date, $end_date);
+                $price_title = blupaper_build_price_range_title($normalized_prices);
+
+                $wpdb->insert($wt_pricings_table, ['trip_id' => $post_id, 'title' => $price_title, 'min_pax' => 0, 'max_pax' => 20, 'has_group_price' => 0, 'group_prices' => 'a:0:{}', 'sort_order' => $pricing_index + 1], ['%d', '%s', '%d', '%d', '%d', '%s', '%d']);
+                $pricing_id = (int) $wpdb->insert_id;
+
+                foreach ($normalized_prices as $price_row) {
+                    $term_id = blupaper_get_or_create_wte_price_term_id($price_row['category']);
+                    if ($term_id > 0) {
+                        wp_set_object_terms($post_id, [$term_id], 'wt_pricing_category', true);
+                        $wpdb->insert($wt_price_cat_rel_table, ['pricing_id' => $pricing_id, 'pricing_category_id' => $term_id, 'price_per' => 'person', 'regular_price' => (string) $price_row['amount'], 'is_sale' => 0, 'sale_price' => '0', 'is_sale_percentage' => '0', 'sale_percentage_val' => '0', 'has_group_price' => 0, 'group_prices' => 'a:0:{}', 'default_pax' => 0], ['%d', '%d', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%d']);
+                    }
+                }
+
+                $wpdb->insert($wt_dates_table, ['trip_id' => $post_id, 'title' => $date_title, 'start_date' => $start_date, 'end_date' => $end_date, 'pricing_ids' => (string) $pricing_id, 'custom_link' => '', 'recurring' => 0, 'booking_status' => ''], ['%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s']);
+            }
+        }
+        return rest_ensure_response(array('success' => true, 'message' => 'อัปเดตทัวร์สำเร็จ', 'post_id' => $post_id));
+    }
+}
+
+// DELETE TOUR
+if (!function_exists('blupaper_delete_tour')) {
+    function blupaper_delete_tour($request) {
+        $post_id = $request['id'];
+        if (get_post_type($post_id) !== 'itineraries') return new WP_Error('invalid_post', 'ไม่พบโปรแกรมทัวร์ที่ต้องการลบ', array('status' => 404));
+        
+        $deleted = wp_delete_post($post_id, true);
+        if ($deleted) return rest_ensure_response(array('success' => true, 'message' => 'ลบข้อมูลสำเร็จ'));
+        else return new WP_Error('delete_failed', 'เกิดข้อผิดพลาดในการลบข้อมูล', array('status' => 500));
     }
 }

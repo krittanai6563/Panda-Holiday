@@ -207,6 +207,129 @@ app.post('/api/add-tour', async (req, res) => {
   }
 })
 
+// 7.5) ดึงข้อมูลทัวร์ทั้งหมด (GET)
+app.get('/api/tours', async (req, res) => {
+  try {
+    const response = await wpApi.get('/tours')
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error('❌ /api/tours error:', error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || error.message
+    })
+  }
+})
+
+// 7.6) ลบโปรแกรมทัวร์ (DELETE)
+app.delete('/api/tours/:id', async (req, res) => {
+  try {
+    const response = await wpApi.delete(`/tours/${req.params.id}`)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ DELETE /api/tours/${req.params.id} error:`, error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || error.message
+    })
+  }
+})
+
+// 7.7) ดึงข้อมูลทัวร์ 1 รายการ (สำหรับหน้าแก้ไข)
+app.get('/api/tours/:id', async (req, res) => {
+  try {
+    const response = await wpApi.get(`/tours/${req.params.id}`)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ GET /api/tours/${req.params.id} error:`, error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.8) อัปเดตข้อมูลทัวร์ (POST)
+app.post('/api/update-tour/:id', async (req, res) => {
+  try {
+    const response = await wpApi.post(`/update-tour/${req.params.id}`, req.body)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ POST /api/update-tour/${req.params.id} error:`, error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.9) อัปเดตสถานะทัวร์ด่วน (Quick Edit Status)
+app.post('/api/update-tour-status/:id', async (req, res) => {
+  try {
+    const response = await wpApi.post(`/update-tour-status/${req.params.id}`, req.body)
+    res.status(200).json(response.data)
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.10) เพิ่มข้อมูลสายการบินใหม่
+app.post('/api/add-airline', async (req, res) => {
+  try {
+    const response = await wpApi.post('/add-airline', req.body)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ POST /api/add-airline error:`, error.response?.data || error.message)
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.11) ดึงข้อมูล Taxonomy (จุดหมาย, เทศกาล, เดือน)
+app.get('/api/taxonomy-terms/:taxonomy', async (req, res) => {
+  try {
+    const response = await wpApi.get(`/taxonomy-terms/${req.params.taxonomy}`)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ GET /api/taxonomy-terms/${req.params.taxonomy} error:`, error.message)
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.12) เพิ่มข้อมูล Taxonomy ใหม่
+app.post('/api/taxonomy-terms/:taxonomy', async (req, res) => {
+  try {
+    const response = await wpApi.post(`/taxonomy-terms/${req.params.taxonomy}`, req.body)
+    res.status(200).json(response.data)
+  } catch (error) {
+    console.error(`❌ POST /api/taxonomy-terms/${req.params.taxonomy} error:`, error.message)
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.13) อัปเดตข้อมูล Taxonomy (POST)
+app.post('/api/taxonomy-terms/:taxonomy/:id', async (req, res) => {
+  try {
+    const response = await wpApi.post(`/taxonomy-terms/${req.params.taxonomy}/${req.params.id}`, req.body)
+    res.status(200).json(response.data)
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.14) ลบข้อมูล Taxonomy (DELETE)
+app.delete('/api/taxonomy-terms/:taxonomy/:id', async (req, res) => {
+  try {
+    const response = await wpApi.delete(`/taxonomy-terms/${req.params.taxonomy}/${req.params.id}`)
+    res.status(200).json(response.data)
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
+// 7.15) ดึงรายชื่อทัวร์ตาม Taxonomy (GET)
+app.get('/api/taxonomy-tours/:taxonomy/:id', async (req, res) => {
+  try {
+    const response = await wpApi.get(`/taxonomy-tours/${req.params.taxonomy}/${req.params.id}`)
+    res.status(200).json(response.data)
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ success: false, message: error.message })
+  }
+})
+
 // 8) 404 catcher (ต้องอยู่ล่างสุด)
 app.use((req, res) => {
   console.log(`❌ เข้ามาผิด Route: ${req.method} ${req.originalUrl}`)
